@@ -221,16 +221,16 @@ RUN mkdir -p /usr/src/engine/python /opt/audio/models /usr/src/engine/native /us
 COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/*.py /usr/src/server/
 
 # Download melo & piper files from artifactory
-RUN wget -r -np -nH --cut-dirs=5 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
       -P "/usr/src/server/melo" \
         "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/python/melo/"
-RUN wget -r -np -nH --cut-dirs=5 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
     -P "/usr/src/server/piper" \
       "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/python/piper/"
 RUN chown -R iot-user:iot-user /usr/src/server/melo
 RUN chown -R iot-user:iot-user /usr/src/server/piper
-#COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/melo /usr/src/server/melo
-#COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/piper /usr/src/server/piper
+COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/melo /usr/src/server/melo
+COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/piper /usr/src/server/piper
 
 # Move .pyc files directly into their package dir (keeping cpython tag), remove __pycache__ and stub .py files.
 # Python can load .pyc files placed directly in the package directory without a .py source file.
@@ -246,20 +246,20 @@ RUN find /usr/src/server/melo -name '__pycache__' | while read cache_dir; do \
     find /usr/src/server/melo -mindepth 2 -name '*.py' ! -name '__init__.py' -delete
 
 # Download .so files & whisper speech float files from artifactory
-RUN wget -r -np -nH --cut-dirs=5 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
       -P "/usr/src/engine/native/" \
         "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/native/aarch64-oe-linux/"
-RUN wget -r -np -nH --cut-dirs=4 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=5 --reject "index.html*" \
     -P "/usr/src/engine/models/whisper/" \
       "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/whisper/"
 RUN chown -R root:root /usr/src/engine/native/
 RUN chown -R iot-user:iot-user /usr/src/engine/models/whisper/
 
 # Download Notice and License files from artifactory
-RUN wget -r -np -nH --cut-dirs=3 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=4 --reject "index.html*" \
       -P "/usr/src/server/" \
         "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/NO.LOGIN.BINARY.LICENSE.QTI.pdf"
-RUN wget -r -np -nH --cut-dirs=3 --reject "index.html*" \
+RUN wget -r -np -nH --cut-dirs=4 --reject "index.html*" \
     -P "/usr/src/server/" \
       "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/NOTICE.FOR.AUDIO.ANALAYTICS.BINARIES.txt"
 RUN chown -R iot-user:iot-user /usr/src/server/
