@@ -35,7 +35,7 @@ services:
       - TRANSLATION_MODELS_DIR=${TRANSLATION_MODELS_DIR:-/mnt/work/models/translation}
       - TTS_MODELS_DIR=${TTS_MODELS_DIR:-/mnt/work/models/tts}
       - SOCKET_PATH=/tmp/audio-sockets/audio-analytics.sock
-      # VAD_LEN_HANGOVER: Voice Activity Detection length hangover (in units of 10ms)      
+      # VAD_LEN_HANGOVER: Voice Activity Detection length hangover (in units of 10ms)
       # Example: 120 = 1.2s, 200 = 2.0s, 50 = 0.5s
       - VAD_LEN_HANGOVER=${VAD_LEN_HANGOVER:-70}
       # SESSION_TIMEOUT_S: seconds of no incoming audio before an asr streaming session is
@@ -58,7 +58,7 @@ services:
       - '8085'
     network_mode: host
     volumes:
-      - /home/ubuntu/models/audio:/mnt/work/models:ro
+      - ~/models/audio:/mnt/work/models:ro
       - audio-sockets:/tmp/audio-sockets  # Unix domain socket for API ↔ server IPC
       # Mount system libraries from host for DSP access
       - /usr/lib/aarch64-linux-gnu/libdmabufheap.so.0:/usr/lib/libdmabufheap.so.0:ro
