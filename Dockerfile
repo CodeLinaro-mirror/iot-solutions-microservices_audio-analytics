@@ -58,7 +58,7 @@ RUN if [ "$INSTALL_NATIVE_LIBS" = "true" ]; then \
 ENV VLM_BUILD_DIR="/mnt/work/build"
 ENV VLM_DEPLOY_DIR="/mnt/work/deploy"
 ENV VLM_ADSP_DIR=${VLM_DEPLOY_DIR}/usr/lib/rfsa/adsp
-ENV VLM_QNP_VER=2.45.40.260406
+ENV VLM_QNP_VER=2.45.0.260326
 #ENV VLM_QNP_VER=2.40.0.251030
 ENV VLM_DOWNLOAD_DIR="/mnt/work/downloads"
 ENV VLM_QNP_SDK=v${VLM_QNP_VER}.zip
@@ -140,7 +140,8 @@ RUN if [ "$INSTALL_NATIVE_LIBS" = "true" ]; then \
 # nodesource - but ONLY in this builder stage. The runtime stage copies just
 # the node binary + app files across, so the ~288 MB install never lands in
 # the final image.
-FROM ubuntu:${UBUNTU_VERSION} AS api-builder
+# Inherits from base to reuse the already-pulled ubuntu:24.04 image and apt-get upgrade layer.
+FROM base AS api-builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -266,24 +267,48 @@ RUN chown -R iot-user:iot-user /usr/src/server/
 
 # COPY --chown=root:root audio-analytics-server/engine/native/aarch64-oe-linux/*.so /usr/src/engine/native/
 # COPY --chown=iot-user:iot-user audio-analytics-server/engine/models/whisper/ /usr/src/engine/models/whisper/
-#COPY --chown=iot-user:iot-user audio-analytics-server/engine/config/models.json /opt/audio/models/models.json
+# COPY --chown=iot-user:iot-user audio-analytics-server/engine/config/models.json /opt/audio/models/models.json
+
+# ============================
+# Stage: Build fastrpc (libcdsprpc.so + libadsprpc.so)
+# ============================
+# Builds fastrpc from source. Provides libcdsprpc.so and libadsprpc.so
+# which are required by libtranslation.so at runtime.
+# Inherits from base to reuse the already-pulled ubuntu:24.04 image and apt-get upgrade layer.
+FROM base AS fastrpc-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      git ca-certificates \
+      autoconf automake libtool make gcc pkg-config \
+      libyaml-dev libmd-dev libbsd-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 https://github.com/quic/fastrpc.git \
+    && cd fastrpc \
+    && autoreconf -is \
+    && CFLAGS='-UMACHINE_NAME_PATH -DMACHINE_NAME_PATH=\"/run/device-model\"' \
+       ./configure --prefix=/usr --libdir=/usr/lib \
+    && make -j"$(nproc)" \
+    && make install \
+    && rm -rf /fastrpc
 
 # ============================
 # Stage: Final Runtime Image
 # ============================
-# Use a clean base — do NOT inherit from `base` which carries curl + apt-get
-# upgrade baggage (~50-100 MB). Runtime only needs what's explicitly installed here.
-FROM ubuntu:${UBUNTU_VERSION} AS runtime
+# Inherits from base to reuse the already-pulled ubuntu:24.04 image and apt-get upgrade layer.
+# base already ran apt-get upgrade so we don't need to repeat it here.
+FROM base AS runtime
 
 ARG INSTALL_NATIVE_LIBS
 
-# Single combined layer: upgrade + runtime deps only.
-# No build tools, no nodesource. Node binary is copied from api-builder.
-# ca-certificates is build-time only (api-builder stage). curl is kept for HEALTHCHECK.
+# Single combined layer: runtime deps only.
+# base already ran apt-get upgrade. No build tools, no nodesource.
+# Node binary is copied from api-builder.
 RUN apt-get update && \
-    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-      python3 supervisor curl && \
+      python3 supervisor curl libyaml-0-2 libbsd0 libmd0 libatomic1 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -320,6 +345,26 @@ COPY --from=server-builder --chown=iot-user:iot-user /usr/src/server /usr/src/se
 # Copy native libraries (directory always exists, only populated when INSTALL_NATIVE_LIBS=true)
 COPY --from=native-libs /mnt/work/deploy/usr /usr
 
+# Copy fastrpc libs built from source
+COPY --from=fastrpc-builder /usr/lib/libcdsprpc* /usr/lib/
+COPY --from=fastrpc-builder /usr/lib/libadsprpc* /usr/lib/
+
+# Bake fastrpc DSP path config for all supported devices into a safe path
+# that is never bind-mounted. The command: block in compose copies it to
+# /usr/share/qcom/conf.d/ at runtime after the bind-mount is in place.
+RUN mkdir -p /etc/fastrpc
+COPY <<'EOF' /etc/fastrpc/hexagon-dsp-binaries.yaml
+# SPDX-License-Identifier: MIT
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+machines:
+  Qualcomm Technologies, Inc. Monaco Monza addons:
+    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp
+  Qualcomm Technologies, Inc. Addons IQ 9075 EVK:
+    DSP_LIBRARY_PATH: sa8775p/Qualcomm/SA8775P-RIDE/dsp
+  Qualcomm Technologies, Inc. IQ8 8275 Pro SKU EVK:
+    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp
+EOF
+
 # Copy the virtual environment
 COPY --from=server-builder /venv /venv
 
@@ -338,7 +383,7 @@ nodaemon=true
 user=iot-user
 logfile=/dev/null
 logfile_maxbytes=0
-pidfile=/var/run/supervisord.pid
+pidfile=/tmp/supervisord.pid
 
 [program:server]
 priority=10
@@ -353,7 +398,7 @@ stderr_logfile=/proc/1/fd/2
 stderr_logfile_maxbytes=0
 stdout_events_enabled=true
 stderr_events_enabled=true
-environment=LOG_LEVEL="%(ENV_LOG_LEVEL)s",DEV_MODE="%(ENV_DEV_MODE)s",BLACKBOX_CONTAINER="%(ENV_BLACKBOX_CONTAINER)s",SOCKET_PATH="%(ENV_SOCKET_PATH)s",DSP_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/src/server",LD_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/lib:/usr/src/server:/usr/src/engine/native:/mnt/work/deploy/usr/lib",PYTHONUNBUFFERED="1"
+environment=LOG_LEVEL="%(ENV_LOG_LEVEL)s",BLACKBOX_CONTAINER="%(ENV_BLACKBOX_CONTAINER)s",SOCKET_PATH="%(ENV_SOCKET_PATH)s",DSP_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/src/server",LD_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/lib:/usr/src/server:/usr/src/engine/native:/mnt/work/deploy/usr/lib",PYTHONUNBUFFERED="1"
 
 [program:api]
 priority=20
@@ -384,7 +429,7 @@ ENV REDIS_HOST=redis
 ENV REDIS_PORT=6379
 ENV LOG_LEVEL=20
 ENV NODE_ENV=production
-ENV BLACKBOX_CONTAINER=false
+ENV BLACKBOX_CONTAINER=true
 ENV SOCKET_PATH=/tmp/audio-sockets/audio-analytics.sock
 
 # Set environment variables for native libraries
