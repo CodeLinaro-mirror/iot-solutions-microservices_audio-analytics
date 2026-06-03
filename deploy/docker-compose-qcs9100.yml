@@ -50,7 +50,7 @@ services:
       - '8085'
     network_mode: host
     volumes:
-      - /home/ubuntu/models/audio:/mnt/work/models:ro
+      - ~/models/audio:/mnt/work/models:ro
       - audio-sockets:/tmp/audio-sockets  # Unix domain socket for API ↔ server IPC
       # fastrpc libs (libcdsprpc, libadsprpc, libdmabufheap, libatomic) are now baked into the image
       # Mount /run/user for additional runtime files
