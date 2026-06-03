@@ -5,7 +5,7 @@
 
 services:
   audio-analytics:
-    image: audio-analytics:latest
+    image: artifacts.codelinaro.org/iot-solutions-microservices/audio-analytics:latest
     platform: linux/arm64
     container_name: audio-analytics
     hostname: audio-analytics
