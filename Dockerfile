@@ -180,7 +180,7 @@ FROM base AS server-builder
 
 ARG INSTALL_NATIVE_LIBS
 ARG INSTALL_PULSE_AUDIO=false
-ARG VERSION_TAG=1.0.0
+ARG VERSION_TAG=1.0.2
 
 
 # Install default Python 3 packages
