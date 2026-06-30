@@ -74,7 +74,7 @@ class ASRService(BaseService):
         
         self.speakers = dict()
 
-                        # Singleton WhisperWrapper instance (reused across all requests)
+        # Singleton WhisperWrapper instance (reused across all requests)
         self.whisper_wrapper = None
         self.whisper_wrapper_lock = asyncio.Lock()
 
@@ -542,12 +542,15 @@ class ASRService(BaseService):
                     self.logger.warning(
                         f'Rejecting new transcription_create: session(s) already active: {existing_ids}'
                     )
+                    active_ids = [sid for sid in existing_ids if not sid.startswith('pending-')]
                     await self.send_error(
                         Config.ASR_TRANSCRIPTION_OUT,
                         f'A transcription session is already active ({existing_ids[0]}). '
                         f'Please close it first via /transcriptions/close.',
                         sync_id=request.sync_id,
-                        param='session'
+                        param='session',
+                        code='conflict',
+                        extra={'sessions': active_ids}
                     )
                     return
 
@@ -957,15 +960,22 @@ class ASRService(BaseService):
                                     on_error=None
                                 )
                                 
-                                # Initialize Whisper with model paths
-                                await asyncio.to_thread(self.whisper_wrapper._init_whisper,
-                                    encoder_path=encoder_path,
-                                    decoder_path=decoder_path,
-                                    vocab_path=vocab_path,
-                                    speech_path=speech_path,
-                                    model_path=model_path
-                                )
-                                
+                                # Initialize Whisper with model paths — clear the singleton
+                                # on failure so the next request can create a fresh wrapper
+                                # rather than entering the broken "reuse" path with handle=None.
+                                try:
+                                    await asyncio.to_thread(self.whisper_wrapper._init_whisper,
+                                        encoder_path=encoder_path,
+                                        decoder_path=decoder_path,
+                                        vocab_path=vocab_path,
+                                        speech_path=speech_path,
+                                        model_path=model_path
+                                    )
+                                except Exception:
+                                    self.logger.error("WhisperWrapper init failed — clearing singleton so next request can retry")
+                                    self.whisper_wrapper = None
+                                    raise
+
                                 # Set VAD length hangover (custom or environment value)
                                 self.whisper_wrapper.set_vad_len_hangover(vad_hangover)
 
@@ -1479,18 +1489,25 @@ class ASRService(BaseService):
                             on_error=None
                         )
                         
-                        # Initialize Whisper with model paths
-                        await asyncio.to_thread(self.whisper_wrapper._init_whisper,
-                            encoder_path=encoder_path,
-                            decoder_path=decoder_path,
-                            vocab_path=vocab_path,
-                            speech_path=speech_path,
-                            model_path=model_path
-                        )
-                        
+                        # Initialize Whisper with model paths — clear the singleton
+                        # on failure so the next request can create a fresh wrapper
+                        # rather than entering the broken "reuse" path with handle=None.
+                        try:
+                            await asyncio.to_thread(self.whisper_wrapper._init_whisper,
+                                encoder_path=encoder_path,
+                                decoder_path=decoder_path,
+                                vocab_path=vocab_path,
+                                speech_path=speech_path,
+                                model_path=model_path
+                            )
+                        except Exception:
+                            self.logger.error("WhisperWrapper init failed — clearing singleton so next request can retry")
+                            self.whisper_wrapper = None
+                            raise
+
                         # Set VAD length hangover (custom or environment value)
                         self.whisper_wrapper.set_vad_len_hangover(vad_hangover)
-                        
+
                         self.logger.info("Singleton WhisperWrapper created and initialized")
                     else:
                         self.logger.info("Reusing existing singleton WhisperWrapper instance")
@@ -1527,6 +1544,12 @@ class ASRService(BaseService):
                 self.logger.info(f"ASR engine initialized for streaming session {session_id}")
             except Exception as e:
                 self.logger.error(f"Error initializing ASR engine for streaming: {e}", exc_info=True)
+                await self.send_error(
+                    Config.ASR_TRANSCRIPTION_OUT,
+                    f'ASR engine failed to initialize: {e}',
+                    sync_id=request.sync_id
+                )
+                return
         else:
             if self.dev_mode:
                 self.logger.info("Running in dev mode - creating session without ASR engine")

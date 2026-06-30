@@ -181,6 +181,7 @@ FROM base AS server-builder
 ARG INSTALL_NATIVE_LIBS
 ARG INSTALL_PULSE_AUDIO=false
 ARG VERSION_TAG=1.0.2
+ARG ARTIFACTORY_BASE_URL=https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics
 
 
 # Install default Python 3 packages
@@ -224,15 +225,16 @@ COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/*.py /usr/sr
 
 # Download melo & piper files from artifactory
 RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
-      -P "/usr/src/server/melo" \
-        "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/python/melo/"
+   -P "/usr/src/server/melo" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/python/melo/"
 RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
-    -P "/usr/src/server/piper" \
-      "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/python/piper/"
-RUN chown -R iot-user:iot-user /usr/src/server/melo
-RUN chown -R iot-user:iot-user /usr/src/server/piper
+   -P "/usr/src/server/piper" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/python/piper/"
+# Keep the COPY as these folders still exist and have .py source code files
 COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/melo /usr/src/server/melo
 COPY --chown=iot-user:iot-user audio-analytics-server/engine/python/piper /usr/src/server/piper
+RUN chown -R iot-user:iot-user /usr/src/server/melo
+RUN chown -R iot-user:iot-user /usr/src/server/piper
 
 # Move .pyc files directly into their package dir (keeping cpython tag), remove __pycache__ and stub .py files.
 # Python can load .pyc files placed directly in the package directory without a .py source file.
@@ -249,26 +251,26 @@ RUN find /usr/src/server/melo -name '__pycache__' | while read cache_dir; do \
 
 # Download .so files & whisper speech float files from artifactory
 RUN wget -r -np -nH --cut-dirs=6 --reject "index.html*" \
-      -P "/usr/src/engine/native/" \
-        "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/native/aarch64-oe-linux/"
+   -P "/usr/src/engine/native/" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/native/aarch64-oe-linux/"
 RUN wget -r -np -nH --cut-dirs=5 --reject "index.html*" \
-    -P "/usr/src/engine/models/whisper/" \
-      "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/whisper/"
+   -P "/usr/src/engine/models/whisper/" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/whisper/"
+# Comment out COPYs when pulling from Artifactory
+# COPY --chown=root:root audio-analytics-server/engine/native/aarch64-oe-linux/*.so /usr/src/engine/native/
+# COPY --chown=iot-user:iot-user audio-analytics-server/engine/models/whisper/ /usr/src/engine/models/whisper/
+# COPY --chown=iot-user:iot-user audio-analytics-server/engine/config/models.json /opt/audio/models/models.json
 RUN chown -R root:root /usr/src/engine/native/
 RUN chown -R iot-user:iot-user /usr/src/engine/models/whisper/
 
 # Download Notice and License files from artifactory
 RUN wget -r -np -nH --cut-dirs=4 --reject "index.html*" \
-      -P "/usr/src/server/" \
-        "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/NO.LOGIN.BINARY.LICENSE.QTI.pdf"
+   -P "/usr/src/server/" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/NO.LOGIN.BINARY.LICENSE.QTI.pdf"
 RUN wget -r -np -nH --cut-dirs=4 --reject "index.html*" \
-    -P "/usr/src/server/" \
-      "https://artifacts.codelinaro.org/artifactory/iot-solutions-microservices-components/audio-analytics/${VERSION_TAG}/NOTICE.FOR.AUDIO.ANALAYTICS.BINARIES.txt"
+   -P "/usr/src/server/" \
+     "${ARTIFACTORY_BASE_URL}/${VERSION_TAG}/NOTICE.FOR.AUDIO.ANALAYTICS.BINARIES.txt"
 RUN chown -R iot-user:iot-user /usr/src/server/
-
-# COPY --chown=root:root audio-analytics-server/engine/native/aarch64-oe-linux/*.so /usr/src/engine/native/
-# COPY --chown=iot-user:iot-user audio-analytics-server/engine/models/whisper/ /usr/src/engine/models/whisper/
-# COPY --chown=iot-user:iot-user audio-analytics-server/engine/config/models.json /opt/audio/models/models.json
 
 # ============================
 # Stage: Build fastrpc (libcdsprpc.so + libadsprpc.so)
@@ -291,7 +293,7 @@ RUN git clone --depth 1 https://github.com/quic/fastrpc.git \
     && autoreconf -is \
     && CFLAGS='-UMACHINE_NAME_PATH -DMACHINE_NAME_PATH=\"/run/device-model\"' \
        ./configure --prefix=/usr --libdir=/usr/lib \
-    && make -j"$(nproc)" \
+    && make -j1 \
     && make install \
     && rm -rf /fastrpc
 
@@ -350,21 +352,21 @@ COPY --from=native-libs /mnt/work/deploy/usr /usr
 COPY --from=fastrpc-builder /usr/lib/libcdsprpc* /usr/lib/
 COPY --from=fastrpc-builder /usr/lib/libadsprpc* /usr/lib/
 
-# Bake fastrpc DSP path config for all supported devices into a safe path
-# that is never bind-mounted. The command: block in compose copies it to
-# /usr/share/qcom/conf.d/ at runtime after the bind-mount is in place.
-RUN mkdir -p /etc/fastrpc
-COPY <<'EOF' /etc/fastrpc/hexagon-dsp-binaries.yaml
-# SPDX-License-Identifier: MIT
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-machines:
-  Qualcomm Technologies, Inc. Monaco Monza addons:
-    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp
-  Qualcomm Technologies, Inc. Addons IQ 9075 EVK:
-    DSP_LIBRARY_PATH: sa8775p/Qualcomm/SA8775P-RIDE/dsp
-  Qualcomm Technologies, Inc. IQ8 8275 Pro SKU EVK:
-    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp
-EOF
+# Bake fastrpc DSP path config for all supported devices.
+# The entrypoint copies this to /usr/share/qcom/conf.d/ at runtime
+# after the bind-mount is in place, so fastrpc_shell resolves from the host.
+RUN mkdir -p /etc/fastrpc && \
+    { \
+      echo '# SPDX-License-Identifier: BSD-3-Clause-Clear'; \
+      echo '# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.'; \
+      echo 'machines:'; \
+      echo '  Qualcomm Technologies, Inc. Monaco Monza addons:'; \
+      echo '    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp'; \
+      echo '  Qualcomm Technologies, Inc. Addons IQ 9075 EVK:'; \
+      echo '    DSP_LIBRARY_PATH: sa8775p/Qualcomm/SA8775P-RIDE/dsp'; \
+      echo '  Qualcomm Technologies, Inc. IQ8 8275 Pro SKU EVK:'; \
+      echo '    DSP_LIBRARY_PATH: qcs8300/Qualcomm/QCS8300-RIDE/dsp'; \
+    } > /etc/fastrpc/hexagon-dsp-binaries.yaml
 
 # Copy the virtual environment
 COPY --from=server-builder /venv /venv
@@ -376,6 +378,9 @@ COPY --from=server-builder --chown=iot-user:iot-user /usr/src/engine/models/whis
 # Using virtual environment Python packages
 ENV PYTHONPATH=/usr/src/server
 ENV PATH="/venv/bin:$PATH"
+# Use container libraries
+ENV ADSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
+ENV CDSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
 
 RUN mkdir -p /etc/supervisor/conf.d
 COPY <<'EOF' /etc/supervisor/conf.d/supervisord.conf
@@ -399,7 +404,7 @@ stderr_logfile=/proc/1/fd/2
 stderr_logfile_maxbytes=0
 stdout_events_enabled=true
 stderr_events_enabled=true
-environment=LOG_LEVEL="%(ENV_LOG_LEVEL)s",BLACKBOX_CONTAINER="%(ENV_BLACKBOX_CONTAINER)s",SOCKET_PATH="%(ENV_SOCKET_PATH)s",DSP_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/src/server",LD_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/lib:/usr/src/server:/usr/src/engine/native:/mnt/work/deploy/usr/lib",PYTHONUNBUFFERED="1"
+environment=LOG_LEVEL="%(ENV_LOG_LEVEL)s",BLACKBOX_CONTAINER="%(ENV_BLACKBOX_CONTAINER)s",SOCKET_PATH="%(ENV_SOCKET_PATH)s",LD_LIBRARY_PATH="/usr/lib/rfsa/adsp:/usr/lib:/usr/src/server:/usr/src/engine/native:/mnt/work/deploy/usr/lib",PYTHONUNBUFFERED="1"
 
 [program:api]
 priority=20
@@ -436,6 +441,22 @@ ENV SOCKET_PATH=/tmp/audio-sockets/audio-analytics.sock
 # Set environment variables for native libraries
 #ENV DSP_LIBRARY_PATH=/usr/src/server
 #ENV LD_LIBRARY_PATH=/usr/lib/rfsa/adsp:/usr/lib:/usr/src/server
-#ENV ADSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Entrypoint — copies yaml to /usr/share/qcom/conf.d/ after bind-mount is in place,
+# then sets ADSP_LIBRARY_PATH to container's skel directory before supervisord starts.
+COPY <<'EOF' /entrypoint.sh
+#!/bin/bash
+set -e
+chmod 666 /dev/fastrpc* 2>/dev/null || true
+chmod -R 777 /var/log/supervisor 2>/dev/null || true
+chmod 666 /proc/1/fd/1 /proc/1/fd/2 2>/dev/null || true
+mkdir -p /usr/share/qcom/conf.d
+cp /etc/fastrpc/hexagon-dsp-binaries.yaml /usr/share/qcom/conf.d/
+export ADSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
+export CDSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
+export DSP_LIBRARY_PATH=/usr/lib/rfsa/adsp
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+EOF
+RUN chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]

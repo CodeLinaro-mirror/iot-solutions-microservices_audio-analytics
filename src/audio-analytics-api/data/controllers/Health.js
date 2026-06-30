@@ -5,6 +5,7 @@
 'use strict';
 
 const config = require('../config/config');
+const messages = require('../utils/messages');
 const isDebug = config.logLevel <= 10;
 
 module.exports.healthCheck = async function healthCheck (req, res, next, body) {
@@ -62,3 +63,44 @@ module.exports.healthCheck = async function healthCheck (req, res, next, body) {
     }
 };
 
+module.exports.getKPIs = async function getKPIs (req, res, next, body) {
+    // Override default timeout for this request.
+    req.setTimeout(300*1000);
+    if (isDebug) console.log('=== Get KPIs called  ===');
+    
+    try {
+        if (isDebug) console.log('KPIs: Starting...');
+
+        const requestBody = {
+            "message_type": 'get_kpis'
+        };
+
+        // handle message
+        messages.publishAndListenOnce(config.audioKPI, config.audioKPI, requestBody, (err, data) => {
+            if (err) {
+                res.status(400).json({
+                    error: {
+                        message: data.message,
+                        type: "server_error",
+                        param: null,
+                        code: null
+                    }
+                });
+            } else {
+                console.log('Received kpis from server');
+                // Respond with the models (data.result contains the array)
+                res.status(200).json(data.result || data);
+            }
+        });
+    } catch (e) {
+        console.error('KPI error:', e);
+        res.status(500).json({
+            error: {
+                message: e.message,
+                type: "server_error",
+                param: null,
+                code: null
+            }
+        });
+    }
+};

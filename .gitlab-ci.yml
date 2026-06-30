@@ -21,6 +21,7 @@ variables:
   IMAGE_TAG: 1.0.2
   FULL_IMAGE_NAME: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${IMAGE_NAME}:${IMAGE_TAG}"
   FULL_IMAGE_LATEST: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${IMAGE_NAME}:latest"
+  ARTIFACTORY_BASE_URL: "https://${IMAGE_REGISTRY}/artifactory/${IMAGE_PATH}-components/${IMAGE_NAME}"
 
   DOCKER_BUILDKIT: "1"
   TARGET_ARCH: "linux/arm64"
@@ -43,7 +44,7 @@ build-image:
     - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin "$IMAGE_REGISTRY"
 
     - echo "Building Audio Analytics Docker Image (ARM64)"
-    - docker build --build-arg INSTALL_NATIVE_LIBS=true --build-arg UBUNTU_VERSION=24.04 --platform ${TARGET_ARCH} -t "$FULL_IMAGE_NAME" -f Dockerfile .
+    - docker build --build-arg INSTALL_NATIVE_LIBS=true --build-arg UBUNTU_VERSION=24.04 --build-arg ARTIFACTORY_BASE_URL=$ARTIFACTORY_BASE_URL --platform ${TARGET_ARCH} -t "$FULL_IMAGE_NAME" -f src/Dockerfile src/
 
     - echo "Tagging the just-built image as :latest"
     - docker tag "${FULL_IMAGE_NAME}" "${FULL_IMAGE_LATEST}"
@@ -62,7 +63,7 @@ test-with-image:
   stage: test
   script:
     - echo "Logging into JFrog"
-    - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin artifacts.codelinaro.org
+    - echo "$JFROG_PASSWORD" | docker login -u "$JFROG_USERNAME" --password-stdin "$IMAGE_REGISTRY"
 
     - echo "Running container from built image"
     - docker run --rm -v /data:/data "$FULL_IMAGE_NAME" bash -c "uname -a && cat /etc/os-release && df -h /data"
