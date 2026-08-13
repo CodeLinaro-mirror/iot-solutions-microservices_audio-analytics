@@ -18,7 +18,7 @@ variables:
   IMAGE_REGISTRY: artifacts.codelinaro.org
   IMAGE_PATH: iot-solutions-microservices
   IMAGE_NAME: audio-analytics
-  IMAGE_TAG: 1.0.2
+  IMAGE_TAG: 1.0.4
   FULL_IMAGE_NAME: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${IMAGE_NAME}:${IMAGE_TAG}"
   FULL_IMAGE_LATEST: "${IMAGE_REGISTRY}/${IMAGE_PATH}/${IMAGE_NAME}:latest"
   ARTIFACTORY_BASE_URL: "https://${IMAGE_REGISTRY}/artifactory/${IMAGE_PATH}-components/${IMAGE_NAME}"
