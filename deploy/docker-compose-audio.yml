@@ -5,7 +5,7 @@
 
 services:
   audio-analytics:
-    image: artifacts.codelinaro.org/iot-solutions-microservices/audio-analytics:1.0.2
+    image: artifacts.codelinaro.org/iot-solutions-microservices/audio-analytics:1.0.4
     platform: linux/arm64
     container_name: audio-analytics
     hostname: audio-analytics
@@ -45,6 +45,7 @@ services:
     tmpfs:
       - /app/uploads:rw,size=500m,mode=777
       - /tmp/audio-cache:rw,size=2g,mode=777
+      - /usr/share/qcom/conf.d:rw,size=2m,mode=777
 
 
 # persistent volumes for cache and IPC socket across container restarts
